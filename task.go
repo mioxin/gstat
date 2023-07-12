@@ -45,6 +45,7 @@ LOOP:
 		case val, ok := <-chIn:
 			to := 0
 			max_req := 0
+		LOOP_IIN:
 			for {
 				select {
 				case <-t.done:
@@ -67,14 +68,14 @@ LOOP:
 								time.Sleep(time.Duration(to) * time.Second)
 							} else if max_req < MAX_R {
 								max_req++
-								break
+								break LOOP_IIN
 							} else {
 								break LOOP
 							}
 						} else {
 							if hr.StatusCode >= 400 {
 								if max_req >= MAX_R {
-									break
+									break LOOP_IIN
 								}
 								to += 3
 								max_req++
@@ -90,7 +91,7 @@ LOOP:
 									log.Printf("task #%v: OK IIN %v to JSON \n", t.id, iin)
 									//mtx.Unlock
 								}
-								break
+								break LOOP_IIN
 							}
 						}
 					} else {
