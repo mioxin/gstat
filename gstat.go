@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
 	"time"
 	//	"sync"
@@ -18,14 +19,23 @@ import (
 const (
 	PROXY_LIST string        = "https://www.proxy-list.download/api/v1/get?type=https"
 	TIMEOUT    time.Duration = 5
+	MAX_R      int           = 20
 )
-
-// const F_OUT string = "out.txt"
-const MAX_R int = 20
 
 type C struct {
 	Success bool
 	Obj     *Company
+}
+
+type App struct {
+	inf, outf string
+	ctx       context.Context
+	done      context.CancelFunc
+}
+
+func NewApp() *App {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &App{infile, outfile, ctx, cancel}
 }
 
 var (
@@ -60,11 +70,32 @@ func main() {
 	if !verbouse {
 		output_log, err := os.OpenFile("gstat.log", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 		if err != nil {
-			log.Fatal("Cant open ouput file for loging ", "gstst.log", ".\n", err)
+			fmt.Printf("Cant open ouput file for loging. Output log to STDOUT? (Y/N)\n")
+			answ := ""
+			fmt.Scanln(&answ)
+			if answ != "Y" && answ != "y" {
+				log.Fatal("Emergency stop gstst:", err)
+			}
+		} else {
+			log.SetOutput(output_log)
 		}
-		log.SetOutput(output_log)
 	}
 
+	app := NewApp()
+
+	chSignal := make(chan os.Signal)
+	signal.Notify(chSignal, os.Interrupt, os.Kill)
+	go func() {
+		<-chSignal
+		app.done()
+	}()
+
+	app.start()
+
+	fmt.Println("End gstat.")
+}
+
+func (app *App) start() {
 	fi, err := os.Open(infile)
 	if err != nil {
 		panic(err)
@@ -90,27 +121,29 @@ func main() {
 		out.Flush()
 	}()
 	fmt.Printf("Input file: %s\nOutput file: %s\nThreads: %v\n", infile, outfile, threads)
+
 	if err = skipLines(in, fo); err == io.EOF {
 		//if err = continueGet(in, fo); err == io.EOF {
 		log.Printf("End of input file %v untill seeking last iin.\n", infile)
+	} else if err != nil {
+		fmt.Println("error SkipLines:", err)
 	}
 
-	run2(in, out)
+	app.work(in, out)
 }
 
-func run2(in *bufio.Reader, out *bufio.Writer) {
+func (app *App) work(in *bufio.Reader, out *bufio.Writer) {
 	var (
 		val  any
 		astr []string
 		iin  string
-		//mtx *sync.Mutex
-		// i int
 	)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// ctx, cancel := context.WithCancel(context.Background())
+	// defer cancel()
 	cin := make(chan any)
 	cout := make(chan any)
-	pool := NewClientPool(ctx, cin, cout)
+
+	pool := NewClientPool(app.ctx, cin, cout)
 	for i := 0; i < threads; i++ {
 		pool.Add(i, NewTask(i))
 	}
@@ -139,9 +172,8 @@ func run2(in *bufio.Reader, out *bufio.Writer) {
 		}
 		close(cin)
 		fmt.Println("\ngo End of input file... chIn closed.")
-		cancel()
-		fmt.Println("cancel.")
-
+		app.done()
+		fmt.Println("App cancel by the end of input.")
 	}()
 
 	pool.Start()
@@ -150,11 +182,7 @@ func run2(in *bufio.Reader, out *bufio.Writer) {
 		jd, _ := json.Marshal(val.(C).Obj)
 		out.WriteString(string(jd))
 		out.WriteString("\n")
-		//fmt.Printf("OK IIN %v to JSON \n", val.(C).Obj.Bin)
-
 	}
-	fmt.Println("End gstat.")
-
 }
 
 func skipLines(r *bufio.Reader, f *os.File) error {
@@ -162,12 +190,10 @@ func skipLines(r *bufio.Reader, f *os.File) error {
 	buf := make([]byte, 2048)
 
 	if _, err := f.Seek(-2048, 2); err != nil {
-		fmt.Println("err seek", err)
 		return err
 	}
 
 	if _, err := f.Read(buf); err != nil {
-		fmt.Println("err resd", err)
 		return err
 	}
 	lines := bytes.Split(buf, []byte{'\n'})
