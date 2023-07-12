@@ -1,3 +1,3 @@
-module github.com/mrmioxin/get_IINstat_gov
+module github.com/mrmioxin/gstat
 
 go 1.19
