@@ -28,14 +28,13 @@ type C struct {
 }
 
 type App struct {
-	inf, outf string
-	ctx       context.Context
-	done      context.CancelFunc
+	ctx  context.Context
+	done context.CancelFunc
 }
 
 func NewApp() *App {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &App{infile, outfile, ctx, cancel}
+	return &App{ctx, cancel}
 }
 
 var (
@@ -61,25 +60,7 @@ func main() {
 		log.Println("Time:", time.Since(t))
 	}()
 
-	flag.Parse()
-	if help {
-		showHelp()
-	}
-	log.Println("HELP:", help)
-
-	if !verbouse {
-		output_log, err := os.OpenFile("gstat.log", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
-		if err != nil {
-			fmt.Printf("Cant open ouput file for loging. Output log to STDOUT? (Y/N)\n")
-			answ := ""
-			fmt.Scanln(&answ)
-			if answ != "Y" && answ != "y" {
-				log.Fatal("Emergency stop gstst:", err)
-			}
-		} else {
-			log.SetOutput(output_log)
-		}
-	}
+	flagParse()
 
 	app := NewApp()
 
@@ -233,6 +214,28 @@ func skipLines(r *bufio.Reader, f *os.File) error {
 	}
 	log.Printf("%v iins skiped ...\n", count) //, iin)
 	return nil
+}
+
+func flagParse() {
+	flag.Parse()
+	if help {
+		showHelp()
+	}
+	log.Println("HELP:", help)
+
+	if !verbouse {
+		output_log, err := os.OpenFile("gstat.log", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
+		if err != nil {
+			fmt.Printf("Cant open ouput file for loging. Output log to STDOUT? (Y/N)\n")
+			answ := ""
+			fmt.Scanln(&answ)
+			if answ != "Y" && answ != "y" {
+				log.Fatal("Emergency stop gstst:", err)
+			}
+		} else {
+			log.SetOutput(output_log)
+		}
+	}
 }
 
 func showHelp() {
