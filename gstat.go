@@ -68,6 +68,7 @@ func main() {
 	signal.Notify(chSignal, os.Interrupt, os.Kill)
 	go func() {
 		<-chSignal
+		fmt.Println("Cancel gstat by OS interruption.")
 		app.done()
 	}()
 
