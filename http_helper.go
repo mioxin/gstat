@@ -150,17 +150,17 @@ type HttpHelperResponse struct {
 	StatusCode int
 	Status     string
 	err        error
-	response   []byte
-	//response   *http.Response
+	Body       io.ReadCloser
+	//response   []byte
 }
 
 func NewHttpHelperResponse(rsp *http.Response) *HttpHelperResponse {
-	b, err := io.ReadAll(rsp.Body)
-	defer rsp.Body.Close()
-	if err != nil {
-		return &HttpHelperResponse{0, "", err, nil}
-	}
-	return &HttpHelperResponse{rsp.StatusCode, rsp.Status, nil, b}
+	// b, err := io.ReadAll(rsp.Body)
+	// defer rsp.Body.Close()
+	// if err != nil {
+	// 	return &HttpHelperResponse{0, "", err, nil}
+	// }
+	return &HttpHelperResponse{rsp.StatusCode, rsp.Status, nil, rsp.Body}
 }
 
 // OK возвращает true, если во время выполнения запроса
@@ -174,13 +174,20 @@ func (r *HttpHelperResponse) OK() bool {
 }
 
 // Bytes возвращает тело ответа как срез байт
-func (r *HttpHelperResponse) Bytes() []byte {
-	return r.response
+func (r *HttpHelperResponse) Bytes() ([]byte, error) {
+	b, err := io.ReadAll(r.Body)
+	defer r.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	return b, nil
 }
 
 // String возвращает тело ответа как строку
-func (r *HttpHelperResponse) String() string {
-	return string(r.response)
+func (r *HttpHelperResponse) String() (string, error) {
+	b, err := r.Bytes()
+	return string(b), err
 }
 
 // JSON декодирует тело ответа из JSON и сохраняет
@@ -191,14 +198,13 @@ func (r *HttpHelperResponse) JSON(v any) {
 	// она должна быть доступна через r.Err()
 
 	//log.Println("htmlHelper: valid ", json.Valid(r.Bytes()))
-	r.err = nil
-	rb := r.response
+	rb, _ := r.Bytes()
 	if json.Valid(rb) {
 		if err := json.Unmarshal(rb, v); err != nil {
 			r.err = err
 		}
 	} else {
-		r.err = fmt.Errorf("HttpHelperResponse.JSON: error %v is not valid json", r.String())
+		r.err = fmt.Errorf("HttpHelperResponse.JSON: error %v is not valid json", string(rb))
 	}
 }
 

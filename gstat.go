@@ -120,8 +120,6 @@ func (app *App) work(in *bufio.Reader, out *bufio.Writer) {
 		astr []string
 		iin  string
 	)
-	// ctx, cancel := context.WithCancel(context.Background())
-	// defer cancel()
 	cin := make(chan any)
 	cout := make(chan any)
 
