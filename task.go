@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/url"
@@ -54,7 +55,8 @@ LOOP:
 				default:
 					if ok {
 						iin := val.(string)
-						hr := hh.Param("bin", iin).Get()
+						ctx, _ := context.WithCancel(context.Background())
+						hr := hh.Param("bin", iin).Get(ctx)
 						//fmt.Println("Response:", hr)
 
 						if hr.Err() != nil {

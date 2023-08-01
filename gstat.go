@@ -19,7 +19,7 @@ import (
 const (
 	PROXY_LIST string        = "https://www.proxy-list.download/api/v1/get?type=https"
 	TIMEOUT    time.Duration = 5
-	MAX_R      int           = 20
+	MAX_R      int           = 10
 )
 
 type C struct {
@@ -27,18 +27,8 @@ type C struct {
 	Obj     *Company
 }
 
-type App struct {
-	ctx  context.Context
-	done context.CancelFunc
-}
-
-func NewApp() *App {
-	ctx, cancel := context.WithCancel(context.Background())
-	return &App{ctx, cancel}
-}
-
 var (
-	verbouse, help  bool
+	verbouse        bool
 	infile, outfile string
 	threads         int
 )
@@ -49,133 +39,105 @@ func init() {
 	flag.StringVar(&infile, "i", `in.txt`, "The input file")
 	flag.StringVar(&outfile, "o", "out.json", "The output file")
 	flag.IntVar(&threads, "t", 1, "The number of threads")
-	flag.BoolVar(&help, "h", false, "Show help (shorthand)")
-	flag.BoolVar(&help, "help", false, "Show help")
+	flag.Usage = showHelp
 
 }
 
 func main() {
 	t := time.Now()
 	defer func() {
-		log.Println("Time:", time.Since(t))
+		fmt.Println("End gstat. Work time:", time.Since(t))
 	}()
 
 	flagParse()
 
-	app := NewApp()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
+	defer cancel()
 
-	chSignal := make(chan os.Signal)
-	signal.Notify(chSignal, os.Interrupt, os.Kill)
-	go func() {
-		<-chSignal
-		fmt.Println("Cancel gstat by OS interruption.")
-		app.done()
-	}()
-
-	app.start()
-
-	fmt.Println("End gstat.")
-}
-
-func (app *App) start() {
 	fi, err := os.Open(infile)
 	if err != nil {
 		panic(err)
 	}
-	defer func() {
-		log.Println("defer FI close...")
-		fi.Close()
-	}()
-	in := bufio.NewReader(fi)
+	defer fi.Close()
 
 	fo, err := os.OpenFile(outfile, os.O_RDWR|os.O_CREATE, 0755)
 	if err != nil {
 		panic(err)
 	}
-	defer func() {
-		log.Println("defer FO close...")
-		fo.Close()
-	}()
+	defer fo.Close()
 
 	out := bufio.NewWriter(fo)
-	defer func() {
-		log.Println("defer out flash:")
-		out.Flush()
-	}()
-	fmt.Printf("Input file: %s\nOutput file: %s\nThreads: %v\n", infile, outfile, threads)
+	defer out.Flush()
 
-	if err = skipLines(in, fo); err == io.EOF {
+	if err = skipLines(fi, fo); err == io.EOF {
 		//if err = continueGet(in, fo); err == io.EOF {
 		log.Printf("End of input file %v untill seeking last iin.\n", infile)
 	} else if err != nil {
-		fmt.Println("error SkipLines:", err)
+		log.Println("SkipLines:", err)
 	}
 
-	app.work(in, out)
-}
-
-func (app *App) work(in *bufio.Reader, out *bufio.Writer) {
-	var (
-		val  any
-		astr []string
-		iin  string
-	)
 	cin := make(chan any)
 	cout := make(chan any)
 
-	pool := NewClientPool(app.ctx, cin, cout)
-	for i := 0; i < threads; i++ {
-		pool.Add(i, NewTask(i))
-	}
+	go sentDataForTasks(fi, cin)
 
-	go func() {
-		for {
-			str, err := in.ReadString('\n')
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				panic(err)
-			}
+	pool := NewClientPool(threads, cin, cout)
+	go pool.Start(ctx)
 
-			astr = strings.Split(string(str), ";")
-			if len(astr) < 5 {
-				continue
-			}
-
-			iin = strings.TrimSpace(astr[4])
-			if iin == "" {
-				continue
-			}
-			cin <- iin
-			//fmt.Printf("send %s; ", iin)
+	for val := range cout {
+		jd, err := json.Marshal(val.(C).Obj)
+		if err != nil {
+			log.Println("error marshall.", val.(C).Obj)
+		} else {
+			out.WriteString(string(jd))
+			out.WriteString("\n")
 		}
-		close(cin)
-		fmt.Println("\ngo End of input file... chIn closed.")
-		app.done()
-		fmt.Println("App cancel by the end of input.")
-	}()
-
-	pool.Start()
-
-	for val = range pool.chOut {
-		jd, _ := json.Marshal(val.(C).Obj)
-		out.WriteString(string(jd))
-		out.WriteString("\n")
 	}
 }
 
-func skipLines(r *bufio.Reader, f *os.File) error {
-	count := 0
-	buf := make([]byte, 2048)
+func sentDataForTasks(fin io.Reader, cin chan<- any) { //read input data to in chanal
+	var astr []string
+	var iin string
+	in := bufio.NewReader(fin)
 
+	for {
+		str, err := in.ReadString('\n')
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			panic(err)
+		}
+
+		astr = strings.Split(string(str), ";")
+		if len(astr) < 5 {
+			continue
+		}
+
+		iin = strings.TrimSpace(astr[4])
+		if iin == "" {
+			continue
+		}
+		log.Printf("iin %v to chan.", iin)
+		cin <- iin
+		//fmt.Printf("send %s; ", iin)
+	}
+	close(cin)
+	fmt.Println("\ngo End of input file... chIn closed.")
+	//app.done()
+	fmt.Println("App cancel by the end of input.")
+}
+
+func getLastIIN(f io.ReadSeeker) (string, error) {
+	buf := make([]byte, 2048)
 	if _, err := f.Seek(-2048, 2); err != nil {
-		return err
+		return "", err
 	}
 
 	if _, err := f.Read(buf); err != nil {
-		return err
+		return "", err
 	}
+
 	lines := bytes.Split(buf, []byte{'\n'})
 	l := ""
 	for i := 1; ; i++ {
@@ -187,7 +149,18 @@ func skipLines(r *bufio.Reader, f *os.File) error {
 	arr_s := strings.Split(l, ",")
 	arr_iin := strings.Split(strings.TrimSpace(arr_s[0]), ":")
 	last_iin := strings.Trim(arr_iin[1], "\"")
+	return last_iin, nil
+}
+
+func skipLines(fi io.Reader, fo io.ReadSeeker) error {
+	last_iin, err := getLastIIN(fo)
+	if err != nil {
+		return fmt.Errorf("error getLastiin:", err)
+	}
+
+	count := 0
 	log.Printf("last iin:%v seek next...\n", last_iin) //, iin)
+	r := bufio.NewReader(fi)
 
 	iin := ""
 	var astr []string
@@ -216,25 +189,18 @@ func skipLines(r *bufio.Reader, f *os.File) error {
 }
 
 func flagParse() {
+
 	flag.Parse()
-	if help {
-		showHelp()
-	}
-	log.Println("HELP:", help)
 
 	if !verbouse {
 		output_log, err := os.OpenFile("gstat.log", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0666)
 		if err != nil {
-			fmt.Printf("Cant open ouput file for loging. Output log to STDOUT? (Y/N)\n")
-			answ := ""
-			fmt.Scanln(&answ)
-			if answ != "Y" && answ != "y" {
-				log.Fatal("Emergency stop gstst:", err)
-			}
+			fmt.Printf("Cant open file for loging gstat.log. Output log to STDOUT\n")
 		} else {
 			log.SetOutput(output_log)
 		}
 	}
+	fmt.Printf("Input file: %s\nOutput file: %s\nThreads: %v\n", infile, outfile, threads)
 }
 
 func showHelp() {

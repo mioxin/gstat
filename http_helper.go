@@ -99,9 +99,9 @@ func (h *HttpHelper) JSON(v any) *HttpHelper {
 }
 
 // Get выполняет GET-запрос с настроенными ранее параметрами
-func (h *HttpHelper) Get() *HttpHelperResponse {
+func (h *HttpHelper) Get(ctx context.Context) *HttpHelperResponse {
 	var err error
-	h.req, err = http.NewRequest(http.MethodGet, h.uri, nil)
+	h.req, err = http.NewRequestWithContext(ctx, http.MethodGet, h.uri, nil)
 	if err != nil {
 		return &HttpHelperResponse{0, "", err, nil}
 	}
