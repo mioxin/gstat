@@ -155,7 +155,7 @@ func getLastIIN(f io.ReadSeeker) (string, error) {
 func skipLines(fi io.Reader, fo io.ReadSeeker) error {
 	last_iin, err := getLastIIN(fo)
 	if err != nil {
-		return fmt.Errorf("error getLastiin:", err)
+		return fmt.Errorf("error getLastiin:%v", err)
 	}
 
 	count := 0
