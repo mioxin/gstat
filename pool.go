@@ -77,7 +77,7 @@ LOOP:
 			resp, e := HttpConn(ctxTask, w.HttpHelper, i.(string), nameTask) //, chanResponce)
 
 			if e != nil {
-				log.Printf("worker #%v: error IIN %v to JSON err=%v\n", w.id, i, e)
+				log.Printf("worker #%v: error IIN %v to JSON, %v\n", w.id, i, e)
 			} else {
 				log.Printf("worker #%v: OK IIN %v to JSON %#v\n", w.id, i, resp.Obj)
 
