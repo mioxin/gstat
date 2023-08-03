@@ -95,9 +95,11 @@ func HttpConn(ctx context.Context, hh *HttpHelper, iin string, name string) (C, 
 	var comp C
 	max_req, to := 0, 0
 	hh = hh.Param("bin", iin)
+	ctxGet, cancelGet := context.WithTimeout(ctx, TASK_TIMEOUT)
+	defer cancelGet()
 
 	for max_req < MAX_R {
-		hr := hh.Get(ctx)
+		hr := hh.Get(ctxGet)
 		if hr.Err() != nil {
 			err = hr.Err()
 			if !isTimeout(err) { // not Timeout error
@@ -120,7 +122,16 @@ func HttpConn(ctx context.Context, hh *HttpHelper, iin string, name string) (C, 
 		to += STEP_INCREASE_SLEEP
 		max_req++
 		log.Printf("task #%v: req #%v: sleeping %v sec...\n", name, max_req, to)
-		time.Sleep(time.Duration(to) * time.Second)
+		//time.Sleep(time.Duration(to) * time.Second)
+
+		timer := time.NewTimer(time.Duration(to) * time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return comp, fmt.Errorf("stop by contect Timeout")
+		case <-timer.C:
+			//sleep by timer
+		}
 	}
 	return comp, err
 }

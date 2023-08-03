@@ -47,6 +47,9 @@ func main() {
 	t := time.Now()
 	defer func() {
 		fmt.Println("End gstat. Work time:", time.Since(t))
+		if panicVal := recover(); panicVal != nil {
+			log.Fatalf("Stop programm because %v:\n", panicVal)
+		}
 	}()
 
 	flagParse()
@@ -142,9 +145,9 @@ func getLastIIN(f io.ReadSeeker) (string, error) {
 
 	lines := bytes.Split(buf, []byte{'\n'})
 	l := ""
-	for i := 1; ; i++ {
-		l = strings.TrimSpace(string(lines[len(lines)-i]))
-		if l != "" {
+	for i := len(lines) - 1; ; i-- {
+		l = strings.TrimSpace(string(lines[i]))
+		if l != "" && l[len(l)-1] == '}' {
 			break
 		}
 	}
