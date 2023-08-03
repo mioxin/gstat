@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/url"
 	"runtime"
 	"sync"
 	"time"
@@ -101,22 +100,11 @@ func HttpConn(ctx context.Context, hh *HttpHelper, iin string, name string) (C, 
 		hr := hh.Get(ctx)
 		if hr.Err() != nil {
 			err = hr.Err()
-
-			if e, ok := err.(*url.Error); ok && e.Timeout() {
-				to += STEP_INCREASE_SLEEP
-				max_req++
-				log.Printf("task #%v: req #%v: sleeping %v sec...\n", name, max_req, to)
-				time.Sleep(time.Duration(to) * time.Second)
-			} else {
+			if !isTimeout(err) { // not Timeout error
 				break
 			}
 		} else {
-			if hr.StatusCode >= 400 {
-				to += STEP_INCREASE_SLEEP
-				max_req++
-				log.Printf("task #%v: Status: %v, req #%v: sleeping %v sec...\n", name, hr.Status, max_req, to)
-				time.Sleep(time.Duration(to) * time.Second)
-			} else if hr.OK() {
+			if hr.OK() {
 				hr.JSON(&comp)
 				if err = hr.Err(); err != nil {
 					err = fmt.Errorf("task #%v: error IIN %v to JSON err=%v. %v", name, iin, err, comp)
@@ -124,14 +112,28 @@ func HttpConn(ctx context.Context, hh *HttpHelper, iin string, name string) (C, 
 					err = fmt.Errorf("task #%v: IIN %v Company not success. %v", name, iin, comp)
 				}
 				break
+			} else if hr.StatusCode < 400 { // status code not timeout
+				break
 			}
+
 		}
+		to += STEP_INCREASE_SLEEP
+		max_req++
+		log.Printf("task #%v: req #%v: sleeping %v sec...\n", name, max_req, to)
+		time.Sleep(time.Duration(to) * time.Second)
 	}
 	return comp, err
 }
+func isTimeout(err error) bool {
+	type Timeout interface {
+		Timeout() bool
+	}
+	e, ok := err.(Timeout)
+	return ok && e.Timeout()
+}
 
 func LongConnection(ctx context.Context, i int, name string, ch chan any) {
-	//immitation long connection
+	//the immitation long connection
 	defer fmt.Println("--------------END CONN", name)
 	d := i*100 + 50
 	fmt.Printf("#### task %v: start %vms\n", name, d)

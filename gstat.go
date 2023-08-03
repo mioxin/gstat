@@ -69,11 +69,13 @@ func main() {
 	out := bufio.NewWriter(fo)
 	defer out.Flush()
 
-	if err = skipLines(fi, fo); err == io.EOF {
+	if count, err := skipLines(fi, fo); err == io.EOF {
 		//if err = continueGet(in, fo); err == io.EOF {
-		log.Printf("End of input file %v untill seeking last iin.\n", infile)
+		log.Printf("End of input file %v until seeking last iin. Skip %d lines\n", infile, count)
 	} else if err != nil {
 		log.Println("SkipLines:", err)
+	} else {
+		log.Printf("%v iins skiped ...\n", count)
 	}
 
 	cin := make(chan any)
@@ -152,10 +154,10 @@ func getLastIIN(f io.ReadSeeker) (string, error) {
 	return last_iin, nil
 }
 
-func skipLines(fi io.Reader, fo io.ReadSeeker) error {
+func skipLines(fi io.Reader, fo io.ReadSeeker) (int, error) {
 	last_iin, err := getLastIIN(fo)
 	if err != nil {
-		return fmt.Errorf("error getLastiin:%v", err)
+		return 0, fmt.Errorf("error getLastiin:%v", err)
 	}
 
 	count := 0
@@ -168,7 +170,7 @@ func skipLines(fi io.Reader, fo io.ReadSeeker) error {
 		count++
 		str, err := r.ReadString('\n')
 		if err == io.EOF {
-			return err
+			return count, err
 		}
 		if err != nil {
 			panic(err)
@@ -184,8 +186,7 @@ func skipLines(fi io.Reader, fo io.ReadSeeker) error {
 			break
 		}
 	}
-	log.Printf("%v iins skiped ...\n", count) //, iin)
-	return nil
+	return count, nil
 }
 
 func flagParse() {
