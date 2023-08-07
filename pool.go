@@ -12,6 +12,11 @@ import (
 const TASK_TIMEOUT time.Duration = 10500 * time.Millisecond
 const STEP_INCREASE_SLEEP int = 3
 
+type IHelper interface {
+	Param(key, param string) *HttpHelper
+	Get(ctx context.Context) *HttpHelperResponse
+}
+
 type Worker struct {
 	HttpHelper *HttpHelper
 	id         string
@@ -48,7 +53,12 @@ func (cp *ClientPool) Start(ctx context.Context) {
 
 	for _, w := range cp.workers {
 		wg.Add(1)
-		go w.Start(ctx, cp.ChIn, cp.ChOut, &wg)
+		ctxWorker, _ := context.WithTimeout(ctx, TASK_TIMEOUT)
+
+		go func(ctx context.Context) {
+			defer ctx.Done()
+			w.Start(ctxWorker, cp.ChIn, cp.ChOut, &wg)
+		}(ctxWorker)
 	}
 	wg.Wait()
 
@@ -70,11 +80,11 @@ LOOP:
 	for {
 		select {
 		case i := <-chInt:
-			ctxTask, _ := context.WithTimeout(ctx, TASK_TIMEOUT)
+			ctxConn, _ := context.WithTimeout(ctx, TASK_TIMEOUT)
 			num++
 			nameTask := fmt.Sprintf("%v/%v", w.id, num)
 
-			resp, e := HttpConn(ctxTask, w.HttpHelper, i.(string), nameTask) //, chanResponce)
+			resp, e := HttpConn(ctxConn, w.HttpHelper, i.(string), nameTask) //, chanResponce)
 
 			if e != nil {
 				log.Printf("worker #%v: error IIN %v to JSON, %v\n", w.id, i, e)
@@ -90,7 +100,7 @@ LOOP:
 	}
 }
 
-func HttpConn(ctx context.Context, hh *HttpHelper, iin string, name string) (C, error) { //, ch chan any) {
+func HttpConn(ctx context.Context, hh IHelper, iin string, name string) (C, error) { //, ch chan any) {
 	var err error
 	var comp C
 	max_req, to := 0, 0
@@ -98,11 +108,12 @@ func HttpConn(ctx context.Context, hh *HttpHelper, iin string, name string) (C, 
 	ctxGet, cancelGet := context.WithTimeout(ctx, TASK_TIMEOUT)
 	defer cancelGet()
 
+	timer := time.NewTimer(TASK_TIMEOUT)
 	for max_req < MAX_R {
 		hr := hh.Get(ctxGet)
 		if hr.Err() != nil {
 			err = hr.Err()
-			if !isTimeout(err) { // not Timeout error
+			if !isTemporary(err) { // not Timeout error
 				break
 			}
 		} else {
@@ -114,7 +125,7 @@ func HttpConn(ctx context.Context, hh *HttpHelper, iin string, name string) (C, 
 					err = fmt.Errorf("task #%v: IIN %v Company not success. %v", name, iin, comp)
 				}
 				break
-			} else if hr.StatusCode < 400 { // status code not timeout
+			} else if hr.StatusCode == 429 { // status code not timeout
 				break
 			}
 
@@ -124,23 +135,31 @@ func HttpConn(ctx context.Context, hh *HttpHelper, iin string, name string) (C, 
 		log.Printf("task #%v: req #%v: sleeping %v sec...\n", name, max_req, to)
 		//time.Sleep(time.Duration(to) * time.Second)
 
-		timer := time.NewTimer(time.Duration(to) * time.Second)
+		timer.Reset(time.Duration(to) * time.Second)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return comp, fmt.Errorf("stop by contect Timeout")
+			return comp, fmt.Errorf("stop by context cancel")
 		case <-timer.C:
 			//sleep by timer
 		}
 	}
 	return comp, err
 }
+
 func isTimeout(err error) bool {
 	type Timeout interface {
 		Timeout() bool
 	}
 	e, ok := err.(Timeout)
 	return ok && e.Timeout()
+}
+func isTemporary(err error) bool {
+	type Temporary interface {
+		Temporary() bool
+	}
+	e, ok := err.(Temporary)
+	return ok && e.Temporary()
 }
 
 func LongConnection(ctx context.Context, i int, name string, ch chan any) {

@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"time"
 	//	"sync"
@@ -46,7 +47,7 @@ func init() {
 func main() {
 	t := time.Now()
 	defer func() {
-		fmt.Println("End gstat. Work time:", time.Since(t))
+		fmt.Printf("End gstat. Work time: %v. Number of GOROUTINES: %v\n", time.Since(t), runtime.NumGoroutine())
 		if panicVal := recover(); panicVal != nil {
 			log.Fatalf("Stop programm because %v:\n", panicVal)
 		}
